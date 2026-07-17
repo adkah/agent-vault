@@ -3,143 +3,271 @@ title: "Services"
 description: "Define which services your agents can access and how credentials are attached."
 ---
 
-A `Service` is a per-[vault](/learn/vaults) configuration that defines which upstream traffic [agents](/agents/overview) can reach through the proxy and how Agent Vault authenticates to each one. When an agent makes a proxied request, Agent Vault matches the request against the vault's services by host pattern (which may include an inline path glob like `slack.com/api/*`), attaches the configured [credentials](/learn/credentials), and forwards the request. If no service matches, the request is forwarded as plain proxy traffic by default; vault admins can flip a vault into **strict deny mode** (`unmatched_host_policy=deny` in vault settings) to reject unmatched requests with `403` instead.
+{/* A service defines the terms under which an [agent](/agents/overview) can access a specfic upstream API through the Agent Vault proxy.
 
-Each service contains:
+Services define which specfic upstream APIs an [agent](/agents/overview) can access through the Agent Vault proxy. It 
 
-- **Name**: A canonical per-vault identifier (slug, 3–64 lowercase alphanumeric/hyphen chars, no leading/trailing hyphen, no consecutive hyphens). **Required on write** for new services — pick a deliberate name like `stripe`, `slack-bot`, or `internal-billing`. `name` may be omitted only when `host` + `path` uniquely matches an existing service (the server adopts that service's name, the same pattern as host-based delete). Legacy services persisted without a name before this contract are auto-slugified from `host` + `path` on read so they remain addressable; the slug becomes durable on the next write.
-- **Host**: The single matcher field. Accepts a bare hostname (`api.stripe.com`), a one-level wildcard (`*.github.com`), an inline path-scoped form (`slack.com/api/*`), or a port-scoped form (`internal.corp.com:3000` or `internal.corp.com:3000/api/*`). When a port is included, the service matches only traffic to that port; without a port, the service matches any port. Reads and writes use the same shape: writes accept any of those forms; reads return the joined inline form so you see exactly what you wrote.
-- **Auth config**: How Agent Vault authenticates. Five types are supported: `bearer`, `basic`, `api-key`, `custom`, and `passthrough` (opt out of injection).
+A service grants [agents](/agents/overview) access to a specfic upstream API via the Agent Vault proxy. 
+
+A service let you configure how traffic flows from an [agent](/agents/overview) to an upstream API via the Agent Vault proxy. */}
+
+A services is a per-[vault](/learn/vaults) configuration that defines which upstream traffic [agents](/agents/overview) can reach through the proxy and how Agent Vault authenticates to each one.
+
+When an agent makes a proxied request, Agent Vault:
+
+- Matches the request against the vault's services by [host pattern](#host)
+- Attaches the configured [credentials](/learn/credentials) according to the service's settings
+- Forwards the request to the upstream API
+
+If no service matches, the request is forwarded as plain proxy traffic by default.
 
 <Tip>
-  The `/discover` endpoint returns each service's `name` and `host` (joined
-  inline form). Agents use this to know which services are already available
-  before raising a [proposal](/learn/proposals). When two services share the
-  same bare host but scope to different paths (e.g. Slack with separate Bot
-  and Connection rules), distinguish them by `name`.
+An agent proxied through Agent Vault can also raise [proposals](/learn/proposals) to add or modify services.
 </Tip>
 
-Similar to [credentials](/learn/credentials), services can be configured in two ways:
+## Create a service
 
-- **Automatically**: As agents do their work, they can raise [proposals](/learn/proposals) to add or modify services. You review each proposal, provide any required [credentials](/learn/credentials), and approve. This is the recommended workflow for working with Agent Vault.
-- **Manually**: You can set services directly via the CLI by applying a YAML file or by using the interactive builder. This can be useful for pre-configuring a vault before inviting agents.
+<Tabs>
+  <Tab title="From the UI">
+    <Steps>
+      <Step>
+        Go to your Agent Vault dashboard at `http://<your-host>:14321`:
 
-## Service structure
+        <Frame>
+        ![Agent Vault dashboard](./assets/agent-vault-dashboard.png)
+        </Frame>
+      </Step>
+      <Step>
+        Select the [vault](/learn/vaults) you want to create a service in. This will open the **Services** page:
 
-Services are defined in a YAML file. Here's what a single service looks like:
+        <Frame>
+        ![Services page](./assets/services-page.png)
+        </Frame>
+      </Step>
+      <Step>
+       Select **+ Add Service** to open the creation form:
 
-```yaml stripe-services.yaml
-services:
-  - name: stripe
-    host: api.stripe.com
-    auth:
-      type: bearer
-      token: STRIPE_KEY
-```
+       <Frame>
+        ![Creation form](./assets/creation-form.png)
+        </Frame>
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="From YAML">
+    You can also create services using YAML files via the [Agent Vault CLI](/reference/cli#services):
+    <Steps>
+      <Step>
+        Create a `.yaml` file with a relevant file name and fill out the required fields. For example:
 
-```bash
-agent-vault vault service set -f stripe-services.yaml --vault my-vault
-```
+       ```yaml stripe-services.yaml
+        services:
+          - name: stripe
+            host: api.stripe.com
+            auth:
+              type: bearer
+              token: STRIPE_KEY
+        ```
 
-The `host` tells Agent Vault which requests this service applies to. The `auth` block tells Agent Vault how to authenticate, referencing [credential](/learn/credentials) keys by name (not the actual credential values). The following section covers all five auth types.
+        <Info>
+          For a full reference on each possible field when managing services via YAML, check out (placeholder)
+        </Info>
+      </Step>
+      <Step>
+        Apply the service via the [`agent-vault vault service set`](/reference/cli#agent-vault-vault-service-set) command:
 
-## Auth types
+       
+        ```bash
+        agent-vault vault service set -f stripe-services.yaml --vault my-vault
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
 
-Every service must include an `auth` config that tells Agent Vault how to authenticate to the target host. The `auth` config references [credential](/learn/credentials) key names (not the actual credential values) stored in the vault.
+## Configure a service
+
+You can configure a service using the following fields:
+
+### Name
+
+This field defines the vault-scoped identifier for the service. The service's name must be a slug that contains:
+
+- 3-64 lowercase alphanumber/hyphen characters
+- No leading/trailing hyphen
+- No consecutive hyphens
+
+<Tip>
+  You can omit the **Name** field if you specify [host](#host)/path that uniquely matches an existing service.
+</Tip>
+
+### Host
+
+This field defines the hostname that Agent Vault will match against when an agent makes a proxied request. You can enter:
+
+- A bare hostname (`api.stripe.com`)
+- A one-level wildcard (`*.github.com`, matches `api.github.com`, `uploads.github.com`, etc.)
+- An inline path-scoped form (`slack.com/api/*`)
+- A port-scoped form (`internal.corp.com:3000` or `internal.corp.com:3000/api/*`)
+
+<Note>
+  When you include a port in the **Host** field, the service will only match traffic to that port.
+</Note>
+
+<Accordion title="How is matching priority determined?">
+When two host patterns could match a request, the winner is chosen deterministically:
+
+1. **Host tier first.** A pattern whose host portion is an **exact match** of the request host always beats one with a **wildcard** host (`*.example.com`) -- even when the wildcard rule has a more specific path or port.
+2. **Port specificity.** Within the same host tier, a service with a specific port beats one without a port (any-port wildcard).
+3. **Path specificity.** Among rules with the same host tier and port specificity, the rule with the **longest literal path prefix** wins (characters in the path portion before the first `*`). A bare-host pattern (no path) scores 0 (catch-all).
+4. **Declaration order on tie.** If two rules tie on all the above, the rule appearing first in the configured service list wins.
+</Accordion>
+
+## Authentication types
+
+When configuring a service, you can choose from several authorization types that tell Agent Vault how to authenticate to the target host. You can then give Agent Vault the actual secrets to authenticate with by reference existing [credential](/learn/credentials) key names from the same vault.
+
+Here's a breakdown of each authorization type:
 
 ### Bearer
 
 Attaches an `Authorization: Bearer <token>` header. The `token` field references a credential key.
 
-```yaml
-services:
-  - name: api-stripe-com
-    host: api.stripe.com
-    auth:
-      type: bearer
-      token: STRIPE_KEY
-```
-
-Common services: Stripe, GitHub, OpenAI.
+<Tabs>
+  <Tab title="UI">
+    <Frame>
+    ![Bearer](./assets/bearer.png)
+    </Frame>
+  </Tab>
+  <Tab title="YAML">
+  ```yaml
+    services:
+      - name: api-stripe-com
+        host: api.stripe.com
+        auth:
+          type: bearer
+          token: STRIPE_KEY
+    ```
+  </Tab>
+</Tabs>
 
 ### Basic
 
 Attaches an `Authorization: Basic <base64>` header using HTTP Basic authentication. The `username` field is required; `password` is optional (defaults to empty).
 
-```yaml
-services:
-  - name: api-ashbyhq-com
-    host: api.ashbyhq.com
-    auth:
-      type: basic
-      username: ASHBY_API_KEY
-```
+<Tabs>
+  <Tab title="UI">
+    <Frame>
+    ![Basic](./assets/basic.png)
+    </Frame>
+  </Tab>
+  <Tab title="YAML">
+  <CodeGroup>
+  ```yaml Without password
+    services:
+      - name: api-ashbyhq-com
+        host: api.ashbyhq.com
+        auth:
+          type: basic
+          username: ASHBY_API_KEY
+    ```
 
-With a password:
-
-```yaml
-services:
-  - name: yoursite-atlassian-net
-    host: yoursite.atlassian.net
-    auth:
-      type: basic
-      username: JIRA_EMAIL
-      password: JIRA_API_TOKEN
-```
+    ```yaml With password
+    services:
+      - name: yoursite-atlassian-net
+        host: yoursite.atlassian.net
+        auth:
+          type: basic
+          username: JIRA_EMAIL
+          password: JIRA_API_TOKEN
+    ```
+    </CodeGroup>
+  </Tab>
+</Tabs>
 
 ### API key
 
 Attaches a credential value to a named header with an optional prefix. The `header` field defaults to `Authorization` if omitted.
 
-```yaml
-services:
-  - name: api-anthropic-com
-    host: api.anthropic.com
-    auth:
-      type: api-key
-      key: ANTHROPIC_KEY
-      header: x-api-key
-```
+<Tabs>
+  <Tab title="UI">
+    <Frame>
+    ![API key](./assets/api-key.png)
+    </Frame>
+  </Tab>
+  <Tab title="YAML">
+  <CodeGroup>
+  ```yaml Without prefix
+  services:
+    - name: api-anthropic-com
+      host: api.anthropic.com
+      auth:
+        type: api-key
+        key: ANTHROPIC_KEY
+        header: x-api-key
+  ```
 
-With a prefix:
-
-```yaml
-services:
-  - name: api-example-com
-    host: api.example.com
-    auth:
-      type: api-key
-      key: EXAMPLE_KEY
-      header: Authorization
-      prefix: "ApiKey "
-```
+    ```yaml With prefix
+    services:
+      - name: api-example-com
+        host: api.example.com
+        auth:
+          type: api-key
+          key: EXAMPLE_KEY
+          header: Authorization
+          prefix: "ApiKey "
+    ```
+    </CodeGroup>
+  </Tab>
+</Tabs>
 
 ### Custom
 
-Freeform header templates with `{{ SECRET }}` placeholders. Each placeholder is resolved to the corresponding credential at proxy time. Use this when none of the typed auth methods fit.
+Freeform header templates with `{{ SECRET }}` placeholders. Each placeholder is resolved to the corresponding credential at proxy time.
 
-```yaml
-services:
-  - name: api-acme-internal
-    host: api.acme.internal
-    auth:
-      type: custom
-      headers:
-        X-API-Key: "{{ ACME_API_KEY }}"
-        X-Tenant-ID: "{{ ACME_TENANT }}"
-```
+<Tip>
+Use this type when none of the other authentication types are suitable.
+</Tip>
+
+<Tabs>
+  <Tab title="UI">
+    <Frame>
+    ![Custom](./assets/custom.png)
+    </Frame>
+  </Tab>
+  <Tab title="YAML">
+  ```yaml
+  services:
+    - name: api-acme-internal
+      host: api.acme.internal
+      auth:
+        type: custom
+        headers:
+          X-API-Key: "{{ ACME_API_KEY }}"
+          X-Tenant-ID: "{{ ACME_TENANT }}"
+  ```
+  </Tab>
+</Tabs>
 
 ### Passthrough
 
 Allowlists the host without injecting a credential. No credential is stored, read, or attached; client request headers (including `Authorization` and `Cookie`) flow through to the upstream — same as for credentialed services, just without a broker-injected auth header on top.
 
-```yaml
-services:
-  - name: api-example-com
-    host: api.example.com
-    auth:
-      type: passthrough
-```
+<Tabs>
+  <Tab title="UI">
+    <Frame>
+    ![Passthrough](./assets/passthrough.png)
+    </Frame>
+  </Tab>
+  <Tab title="YAML">
+  ```yaml
+  services:
+    - name: api-example-com
+      host: api.example.com
+      auth:
+        type: passthrough
+  ```
+  </Tab>
+</Tabs>
 
 Use passthrough when the operator has decided their client already holds the credential (for example, an existing tool that manages its own token) and wants Agent Vault to provide the host allowlist, [netguard](/learn/security), TLS interception, and audit logging without putting the secret in the vault. All the other auth types are the default — reach for passthrough only when you explicitly want Agent Vault *not* to broker the credential.
 
@@ -171,26 +299,39 @@ This means vendor headers like `anthropic-version`, `OpenAI-Beta`, `If-Match`, a
 
 ## Substitutions
 
-Auth types only inject HTTP headers. Some APIs want a credential value elsewhere — in the URL path, query string, request body, or even inside a WebSocket message. For those, declare a `substitutions` block alongside the auth.
+Authorization types only inject HTTP headers. Some APIs want a credential value elsewhere, like in the URL path, query string, request body, or even inside a WebSocket message.
 
-```yaml
-services:
-  - name: api-twilio-com
-    host: api.twilio.com
-    auth:
-      type: basic
-      username: TWILIO_ACCOUNT_SID
-      password: TWILIO_AUTH_TOKEN
-    substitutions:
-      - key: TWILIO_ACCOUNT_SID
-        placeholder: __account_sid__
-        in: [path]
-```
+To handle these cases, you can add a substitution rule:
 
-The agent then sends `GET https://api.twilio.com/2010-04-01/Accounts/__account_sid__/Messages.json` (routed through the broker via `HTTPS_PROXY`/`HTTP_PROXY`). Agent Vault:
+<Tabs>
+  <Tab title="UI">
+    <Frame>
+    ![Substitutions](./assets/substitutions.png)
+    </Frame>
+  </Tab>
+  <Tab title="YAML">
+  ```yaml
+  services:
+    - name: api-twilio-com
+      host: api.twilio.com
+      auth:
+        type: basic
+        username: TWILIO_ACCOUNT_SID
+        password: TWILIO_AUTH_TOKEN
+      substitutions:
+        - key: TWILIO_ACCOUNT_SID
+          placeholder: __account_sid__
+          in: [path]
+  ```
+  </Tab>
+</Tabs>
+
+With this configuration, the agent sends `GET https://api.twilio.com/2010-04-01/Accounts/__account_sid__/Messages.json` (routed through the broker via `HTTPS_PROXY`/`HTTP_PROXY`).
+
+Then, Agent Vault:
 
 1. Resolves the basic auth credentials and injects `Authorization: Basic <base64(SID:TOKEN)>`.
-2. Scans only the path (the only surface in `in:`), finds `__account_sid__`, replaces it with the URL-encoded SID.
+2. Scans the path, finds `__account_sid__`, and replaces it with the URL-encoded SID.
 3. Forwards the request.
 
 ### Field reference
@@ -256,175 +397,40 @@ Substitutions and auth are independent. A service can use either, both, or neith
   substitutions; to clear them, delete and recreate the service.
 </Warning>
 
-## Matching rules
+## Reject unmatched hosts
 
-The `host` pattern is the single matcher knob. It can carry just a hostname (`api.stripe.com`), a wildcard host (`*.github.com`), an inline path glob (`slack.com/api/*`), or a port-scoped form (`internal.corp.com:3000` or `internal.corp.com:3000/api/*`).
+You can enable **Strict Deny Mode** to make your vault reject requests from agents to unmatched hosts (hosts which have no associated service). When a proxy request targets a host not covered by any service, Agent Vault will return `403` with a `proposal_hint` in the response body. The hint includes the denied host and the endpoint to create a proposal.
 
-**Host portion** supports two modes:
+Well-behaved agents use this hint to automatically raise a [proposal](/learn/proposals) requesting access. You receive a browser link to review the request and provide any needed [credentials](/learn/credentials).
 
-- **Exact match**: `api.stripe.com` matches only `api.stripe.com`.
-- **Wildcard**: `*.github.com` matches `api.github.com`, `uploads.github.com`, etc. The `*` replaces exactly one subdomain segment.
+To enable **Strict Deny Mode**:
 
-**Port** (optional, between host and path as `host:port`): when present, the service matches only traffic to that port. When omitted, the service matches any port. Use this when multiple services run on the same host at different ports (e.g. `internal.corp.com:3000` and `internal.corp.com:4000`).
+<Steps>
+  <Step>
+    Go to your Agent Vault dashboard at `http://<your-host>:14321`:
 
-**Path portion** (optional, follows the host or host:port with a `/`) is a URL glob. A bare host with no path matches any path; a non-empty path must start with `/` and may use `*` as a greedy glob (cross-`/`). `**`, `?`, regex, and a bare `*` are rejected.
+    <Frame>
+    ![Agent Vault dashboard](./assets/agent-vault-dashboard.png)
+    </Frame>
+  </Step>
+  <Step>
+    Select the [vault](/learn/vaults) whose settings you want to modify:
 
-### Matching priority
+    <Frame>
+    ![Services page](./assets/services-page.png)
+    </Frame>
+  </Step>
+  <Step>
+    Select **Settings** in the bottom-left corner, then select **Edit settings**:
 
-When two `host` patterns could match a request, the winner is chosen deterministically:
+     <Frame>
+    ![Settings](./assets/settings.png)
+    </Frame>
 
-1. **Host tier first.** A pattern whose host portion is an **exact match** of the request host always beats one with a **wildcard** host (`*.example.com`) -- even when the wildcard rule has a more specific path or port.
-2. **Port specificity.** Within the same host tier, a service with a specific port beats one without a port (any-port wildcard).
-3. **Path specificity.** Among rules with the same host tier and port specificity, the rule with the **longest literal path prefix** wins (characters in the path portion before the first `*`). A bare-host pattern (no path) scores 0 (catch-all).
-4. **Declaration order on tie.** If two rules tie on all the above, the rule appearing first in the configured service list wins.
+    Enable **Strict Deny Mode**, then select **Save**.
+  </Step>
+</Steps>
 
-Worked example — Slack with two credentials at the same host:
+Now, when a proxy request targets a host not covered by any service, Agent Vault will return `403` with a `proposal_hint` in the response body. The hint includes the denied host and the endpoint to create a proposal.
 
-| Request | `slack-bot` (`slack.com/api/*`) | `slack-conn` (`slack.com/api/apps.connections.*`) | Winner |
-|---|---|---|---|
-| `slack.com/api/apps.connections.open` | matches, prefix length 5 | matches, prefix length 22 | `slack-conn` |
-| `slack.com/api/chat.postMessage` | matches | doesn't match | `slack-bot` |
-| `slack.com/oauth/v2/authorize` | doesn't match | doesn't match | none |
-
-**What this implies for users writing rules:**
-
-- To override a wildcard-host rule for a specific subdomain, **add the exact-host rule** — it takes priority no matter what its path portion looks like.
-- To layer two credentials on the same host, give them **different path portions**; the more specific path will win.
-- The matcher does not run regex, does not match on method/headers/query/body, and does not bound `*` at path segments. Patterns that tie under rule 2 (e.g. `slack.com/api/*/v2` and `slack.com/api/*/v3`) fall to declaration order.
-
-## Example
-
-A vault can define multiple services with different auth types and path scopes:
-
-```yaml services.yaml
-services:
-  - name: stripe
-    host: api.stripe.com
-    auth:
-      type: bearer
-      token: STRIPE_KEY
-
-  - name: github
-    host: "*.github.com"
-    auth:
-      type: bearer
-      token: GITHUB_TOKEN
-
-  - name: anthropic
-    host: api.anthropic.com
-    auth:
-      type: api-key
-      key: ANTHROPIC_KEY
-      header: x-api-key
-
-  - name: jira
-    host: yoursite.atlassian.net
-    auth:
-      type: basic
-      username: JIRA_EMAIL
-      password: JIRA_API_TOKEN
-
-  # Slack uses two credentials at the same host — distinguish via inline-path host.
-  - name: slack-bot
-    host: slack.com/api/*
-    auth:
-      type: bearer
-      token: SLACK_BOT_TOKEN
-
-  - name: slack-conn
-    host: slack.com/api/apps.connections.*
-    auth:
-      type: bearer
-      token: SLACK_CONNECTION_TOKEN
-```
-
-```bash
-agent-vault vault service set -f services.yaml --vault my-vault
-```
-
-Any [agent](/agents/overview) scoped to the [vault](/learn/vaults) named `my-vault` can now proxy requests to these hosts, and Agent Vault attaches the real [credentials](/learn/credentials) at request time.
-
-## Managing services
-
-### Set from a file
-
-```bash
-agent-vault vault service set -f services.yaml --vault my-vault
-```
-
-Replaces the entire service configuration with the contents of the file. This is idempotent, running it twice with the same file produces the same result.
-
-### Set interactively
-
-```bash
-agent-vault vault service set --vault my-vault
-```
-
-Walks you through adding services, auth configs, and credential references one at a time. Requires a TTY (won't work in scripts).
-
-### View current services
-
-```bash
-agent-vault vault service list --vault my-vault
-```
-
-Prints the active services as YAML. If no services are configured, the output is empty.
-
-### Clear all services
-
-```bash
-agent-vault vault service clear --vault my-vault
-```
-
-Removes all services. Agents scoped to this [vault](/learn/vaults) will get `403` on every proxy request until new services are configured. Prompts for confirmation unless you pass `--yes`.
-
-<Tip>
-  The `--vault` flag defaults to `default` on all service commands. You only need
-  to specify it when working with additional vaults.
-</Tip>
-
-<Note>
-  `vault service remove`, `enable`, and `disable` accept either the canonical service `name` or the bare `host`. When several path-scoped services share a host (e.g. Slack with `slack.com/api/*` and `slack.com/api/apps.connections.*`), passing the bare host returns `409 multiple services match host …` with a `candidates` array of `{name, host}` (each `host` carries the joined inline form). Retry with the specific name shown in `agent-vault vault service list`.
-</Note>
-
-<AccordionGroup>
-  <Accordion title="How proposals modify services">
-    Agents don't edit service configurations directly. Instead, they propose changes
-    through [proposals](/learn/proposals), bundles of service and [credential](/learn/credentials)
-    modifications that a human reviews and approves.
-
-    Each service in a proposal has an `action` field:
-
-    - **`set`**: Idempotent upsert keyed by canonical `name` (slug). Adds the service when
-      no entry has that name, or replaces it when one does. `name` is required for new
-      services. It may be omitted only when `host` + `path` uniquely matches an existing
-      service — the server adopts that entry's name (the same pattern as host-based
-      delete), so an agent that knows the host but not the canonical name can still
-      target an existing service.
-    - **`delete`**: Removes the service matching the given `name`. When `name` is omitted,
-      the bare host portion of `host` is used as a fallback — a unique host match is
-      resolved automatically; a host shared by multiple path-scoped services returns
-      `409 multiple services match host …` with a `candidates` list, and the proposal
-      must be retried with an explicit `name`.
-
-    When you approve a proposal, Agent Vault atomically merges all service changes into
-    the vault's configuration in a single transaction. Identity for both set and delete is
-    `name`.
-
-    This means agents can request access to new services without you manually
-    editing YAML files. You just review and click "Allow" in the browser
-    approval page.
-
-  </Accordion>
-
-  <Accordion title="What happens when an agent hits an unknown host">
-    When a proxy request targets a host not covered by any service, Agent Vault returns `403`
-    with a `proposal_hint` in the response body. The hint includes the denied
-    host and the endpoint to create a proposal.
-
-    Well-behaved agents use this hint to automatically raise a
-    [proposal](/learn/proposals) requesting access. You receive a browser link
-    to review the request and provide any needed [credentials](/learn/credentials).
-
-  </Accordion>
-</AccordionGroup>
+Well-behaved agents use this hint to automatically raise a [proposal](/learn/proposals) requesting access. You receive a browser link to review the request and provide any needed [credentials](/learn/credentials).
